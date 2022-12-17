@@ -2,28 +2,20 @@ import socket
 import sys
 import threading
 import pickle
-import time
 
 distance_vector = {}
-neighbours = []
-port = 0
-event = threading.Event()
-finished = False
+neighbors = []
 
-def server():
-    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    s.settimeout(5)
-    s.bind(("localhost", port))
-    s.listen(1)
-    while True:
-        isChanged = False
-        try:
-            conn, addr = s.accept()
+def server(sock):
+    conn = None
+    try:
+        while True:
+            conn, addr = sock.accept()
+            isChanged = False
             data = conn.recv(1024)
             data = pickle.loads(data)
 
             neighbour = 0
-
             for key in data.keys():
                 if data[key] == 0:
                     neighbour = key
@@ -34,56 +26,48 @@ def server():
                     if distance_vector[key] > data[key] + distance_vector[neighbour]:
                         distance_vector[key] = data[key] + distance_vector[neighbour]
                         isChanged = True
-                        print("Changed")
                 else:
                     distance_vector[key] = data[key] + distance_vector[neighbour]
                     isChanged = True
 
             if isChanged:
-                event.set()
-        except socket.timeout:
-            finished = True
-            event.set()
-            for key in distance_vector.keys():
-                d = distance_vector[key]
-                print(f'{port} -{key} | {d}')
-            s.close()
-            break
+                isChanged = False
+                conn.sendall(pickle.dumps(distance_vector))
+
+    except socket.timeout:
+        for key in distance_vector.keys():
+            d = distance_vector[key]
+            print(f'{port} -{key} | {d}')
+        conn.close()
 
 
-def client():
+if __name__ == '__main__':
 
-    send_distance_vector()
-
-    while event.wait():
-        if finished:
-            break
-        send_distance_vector()
-        event.clear()
-
-def send_distance_vector():
-    for neighbour in neighbours:
-        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        s.connect(("localhost", neighbour))
-        s.sendall(pickle.dumps(distance_vector))
-        s.close()
-
-if __name__ == "__main__":
-    port = int(sys.argv[1])
+    node_count = 0
     with open(sys.argv[1] + ".costs", 'r') as f:
         node_count = f.readline().strip()
         for line in f:
             line = line.strip().split()
-            neighbours.append(int(line[0]))
             distance_vector[int(line[0])] = int(line[1])
+            neighbors.append(int(line[0]))
 
+    port = int(sys.argv[1])
     distance_vector[port] = 0
 
-    server_thread = threading.Thread(target=server)
-    client_thread = threading.Thread(target=client)
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind(('localhost', port))
+    server_socket.listen(int(node_count))
+    server_socket.settimeout(5)
 
+    server_thread = threading.Thread(target=server, args=(server_socket,))
     server_thread.start()
-    client_thread.start()
+
+    for neighbor in neighbors:
+        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        client_socket.connect(('localhost', neighbor))
+        client_socket.sendall(pickle.dumps(distance_vector))
+        client_socket.close()
 
     server_thread.join()
-    client_thread.join()
+    server_socket.close()
+
