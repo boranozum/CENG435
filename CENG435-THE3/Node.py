@@ -6,41 +6,6 @@ import pickle
 distance_vector = {}
 neighbors = []
 
-def server(sock):
-    conn = None
-    try:
-        while True:
-            conn, addr = sock.accept()
-            isChanged = False
-            data = conn.recv(1024)
-            data = pickle.loads(data)
-
-            neighbour = 0
-            for key in data.keys():
-                if data[key] == 0:
-                    neighbour = key
-                    break
-
-            for key in data.keys():
-                if key in distance_vector.keys():
-                    if distance_vector[key] > data[key] + distance_vector[neighbour]:
-                        distance_vector[key] = data[key] + distance_vector[neighbour]
-                        isChanged = True
-                else:
-                    distance_vector[key] = data[key] + distance_vector[neighbour]
-                    isChanged = True
-
-            if isChanged:
-                isChanged = False
-                conn.sendall(pickle.dumps(distance_vector))
-
-    except socket.timeout:
-        for key in distance_vector.keys():
-            d = distance_vector[key]
-            print(f'{port} -{key} | {d}')
-        conn.close()
-
-
 if __name__ == '__main__':
 
     node_count = 0
@@ -54,20 +19,68 @@ if __name__ == '__main__':
     port = int(sys.argv[1])
     distance_vector[port] = 0
 
+    for i in range(3000, 3000 + int(node_count)):
+        if i not in distance_vector.keys():
+            distance_vector[i] = 9999
+
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.bind(('localhost', port))
     server_socket.listen(int(node_count))
     server_socket.settimeout(5)
 
-    server_thread = threading.Thread(target=server, args=(server_socket,))
-    server_thread.start()
+    i = 0
+    while i < len(neighbors):
+        try:
+            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            client_socket.connect(('localhost', neighbors[i]))
+            client_socket.sendall(pickle.dumps(distance_vector))
+            client_socket.close()
+            i+=1
+        except:
+            pass
 
-    for neighbor in neighbors:
-        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        client_socket.connect(('localhost', neighbor))
-        client_socket.sendall(pickle.dumps(distance_vector))
-        client_socket.close()
+    try:
+        while True:
+            isChanged = False
 
-    server_thread.join()
-    server_socket.close()
+            for neighbor in neighbors:
+                conn, addr = server_socket.accept()
+                data = conn.recv(1024)
+                data = pickle.loads(data)
+                conn.close()
 
+                neighbour = 0
+                for key in data:
+                    if data[key] == 0:
+                        neighbour = key
+                        break
+
+                for key in data.keys():
+                    if key in distance_vector.keys():
+                        if distance_vector[key] > data[key] + distance_vector[neighbour]:
+                            distance_vector[key] = data[key] + distance_vector[neighbour]
+                            isChanged = True
+                    else:
+                        distance_vector[key] = data[key] + distance_vector[neighbour]
+                        isChanged = True
+
+            if isChanged:
+                isChanged = False
+                i = 0
+                while i < len(neighbors):
+                    try:
+                        client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        client_socket.connect(('localhost', neighbors[i]))
+                        client_socket.sendall(pickle.dumps(distance_vector))
+                        client_socket.close()
+                        i += 1
+                    except:
+                        pass
+
+
+    except socket.timeout:
+        conn.close()
+        server_socket.close()
+        for key in distance_vector.keys():
+            d = distance_vector[key]
+            print(f'{port} -{key} | {d}')
